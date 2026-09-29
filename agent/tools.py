@@ -123,29 +123,44 @@ def get_terrain(lat: float, lon: float) -> dict:
         "sits_lower_than_surroundings": relative < -2,
     }
 
+    dlat = 1000.0 / 111_000.0
+    dlon = 1000.0 / (111_000.0 * max(math.cos(math.radians(lat)), 0.01))
+    s, w, n, e = lat - dlat, lon - dlon, lat + dlat, lon + dlon
+
     query = (
-        f'[out:json][timeout:20];('
-        f'way["waterway"](around:1000,{lat},{lon});'
-        f'way["natural"="water"](around:1000,{lat},{lon});'
-        f');out tags 60;'
+        f"[out:json][timeout:10];("
+        f'way["waterway"]({s:.5f},{w:.5f},{n:.5f},{e:.5f});'
+        f'way["natural"="water"]({s:.5f},{w:.5f},{n:.5f},{e:.5f});'
+        f");out tags 60;"
     )
-    try:
-        r = requests.post(
-            "https://overpass-api.de/api/interpreter",
-            data={"data": query},
-            headers=HEADERS,
-            timeout=TIMEOUT,
-        )
-        r.raise_for_status()
-        counts: dict = {}
-        for el in r.json().get("elements", []):
-            tags = el.get("tags", {})
-            kind = tags.get("waterway") or tags.get("natural") or "water"
-            counts[kind] = counts.get(kind, 0) + 1
-        result["water_features_within_1km"] = counts
-    except Exception as exc:  # Overpass is public and can be busy; degrade gracefully
+    overpass_endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+    ]
+    overpass_error = None
+    for endpoint in overpass_endpoints:
+        try:
+            r = requests.post(
+                endpoint,
+                data={"data": query},
+                headers=HEADERS,
+                timeout=10,
+            )
+            r.raise_for_status()
+            counts: dict = {}
+            for el in r.json().get("elements", []):
+                tags = el.get("tags", {})
+                kind = tags.get("waterway") or tags.get("natural") or "water"
+                counts[kind] = counts.get(kind, 0) + 1
+            result["water_features_within_1km"] = counts
+            overpass_error = None
+            break
+        except Exception as exc:  # Overpass is public and can be busy; try next or degrade gracefully
+            overpass_error = str(exc)[:120]
+
+    if overpass_error is not None and "water_features_within_1km" not in result:
         result["water_features_within_1km"] = None
-        result["water_features_error"] = str(exc)[:120]
+        result["water_features_error"] = overpass_error
     return result
 
 
