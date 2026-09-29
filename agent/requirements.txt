@@ -1,0 +1,5 @@
+strands-agents
+boto3
+requests
+anthropic
+python-dotenv
