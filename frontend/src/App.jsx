@@ -27,6 +27,18 @@ import {
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const CARTO_KEY = import.meta.env.VITE_CARTO_API_KEY || 'cb1_45uz_1_e25d64c324c2459646a88fac';
+
+const MAP_STYLES = {
+  voyager: {
+    name: 'Voyager',
+    url: `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${CARTO_KEY ? `?api_key=${CARTO_KEY}` : ''}`,
+  },
+  dark: {
+    name: 'Dark Matter',
+    url: `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png${CARTO_KEY ? `?api_key=${CARTO_KEY}` : ''}`,
+  },
+};
 
 const PRESET_CITIES = [
   { name: 'Mumbai, IN', lat: 19.076, lon: 72.8777 },
@@ -96,6 +108,7 @@ function MapRecenter({ center }) {
 
 export default function App() {
   const [selectedCoord, setSelectedCoord] = useState({ lat: 19.076, lon: 72.8777 });
+  const [mapStyle, setMapStyle] = useState('dark');
   const [assessment, setAssessment] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -306,8 +319,9 @@ export default function App() {
             className="h-full w-full"
           >
             <TileLayer
+              key={mapStyle}
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+              url={MAP_STYLES[mapStyle].url}
               maxZoom={19}
             />
             <MapClickHandler onSelectCoord={handleSelectCoord} />
@@ -353,7 +367,7 @@ export default function App() {
           </MapContainer>
 
           {/* Map Overlay Controls / Preset Buttons */}
-          <div className="absolute top-4 left-4 z-[400] flex flex-wrap gap-2 max-w-sm pointer-events-auto">
+          <div className="absolute top-4 left-4 z-[400] flex flex-wrap items-center gap-2 max-w-lg pointer-events-auto">
             {PRESET_CITIES.map((c) => (
               <button
                 key={c.name}
@@ -367,6 +381,15 @@ export default function App() {
                 {c.name}
               </button>
             ))}
+
+            <button
+              onClick={() => setMapStyle((prev) => (prev === 'dark' ? 'voyager' : 'dark'))}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-md border border-sky-500/40 bg-sky-950/60 text-sky-300 hover:bg-sky-900/60 transition shadow-md flex items-center gap-1.5"
+              title="Toggle Carto Basemap Theme"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>{mapStyle === 'dark' ? 'Dark Matter' : 'Voyager'}</span>
+            </button>
           </div>
 
           {/* Coordinate Indicator Pill */}
