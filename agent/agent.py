@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
 
@@ -72,10 +73,21 @@ def _extract_json(text: str) -> dict:
     return json.loads(match.group(0))
 
 
-def assess(lat: float, lon: float) -> dict:
-    agent = build_agent()
-    result = agent(f"Assess flood and waterlogging risk at latitude {lat}, longitude {lon}.")
-    return _extract_json(str(result))
+def assess(lat: float, lon: float, max_retries: int = 3) -> dict:
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            agent = build_agent()
+            result = agent(f"Assess flood and waterlogging risk at latitude {lat}, longitude {lon}.")
+            return _extract_json(str(result))
+        except Exception as exc:
+            last_exc = exc
+            err_str = str(exc).lower()
+            if attempt < max_retries - 1 and ("503" in err_str or "high demand" in err_str or "unavailable" in err_str or "temporarily" in err_str):
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise exc
+    raise last_exc
 
 
 if __name__ == "__main__":

@@ -176,5 +176,25 @@ def get_reports(lat: float, lon: float, radius_km: float = 2.0) -> dict:
     Returns:
         Number of recent reports and their details.
     """
-    # Stub for Day 1. On Day 2 this reads from DynamoDB (geohash key).
-    return {"count": 0, "reports": [], "note": "Report storage not connected yet."}
+    try:
+        import sys
+        from pathlib import Path
+
+        backend_dir = str(Path(__file__).resolve().parent.parent / "backend")
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        from storage import get_storage
+
+        store = get_storage()
+        items = store.get_reports(lat=lat, lon=lon, radius_km=radius_km)
+        serialized = []
+        for it in items:
+            serialized.append(
+                it.model_dump() if hasattr(it, "model_dump") else dict(it)
+            )
+        return {
+            "count": len(serialized),
+            "reports": serialized,
+        }
+    except Exception as exc:
+        return {"count": 0, "reports": [], "note": f"Report storage unavailable: {str(exc)[:100]}"}
