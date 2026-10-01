@@ -30,13 +30,20 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 const CARTO_KEY = import.meta.env.VITE_CARTO_API_KEY || 'cb1_45uz_1_e25d64c324c2459646a88fac';
 
 const MAP_STYLES = {
-  voyager: {
-    name: 'Voyager',
-    url: `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${CARTO_KEY ? `?api_key=${CARTO_KEY}` : ''}`,
-  },
   dark: {
     name: 'Dark Matter',
-    url: `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png${CARTO_KEY ? `?api_key=${CARTO_KEY}` : ''}`,
+    url: `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png${CARTO_KEY ? `?key=${CARTO_KEY}` : ''}`,
+    subdomains: 'abcd',
+  },
+  voyager: {
+    name: 'Voyager',
+    url: `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${CARTO_KEY ? `?key=${CARTO_KEY}` : ''}`,
+    subdomains: 'abcd',
+  },
+  osm: {
+    name: 'OpenStreetMap',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    subdomains: 'abc',
   },
 };
 
@@ -322,6 +329,7 @@ export default function App() {
               key={mapStyle}
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
               url={MAP_STYLES[mapStyle].url}
+              subdomains={MAP_STYLES[mapStyle]?.subdomains || 'abcd'}
               maxZoom={19}
             />
             <MapClickHandler onSelectCoord={handleSelectCoord} />
@@ -383,12 +391,16 @@ export default function App() {
             ))}
 
             <button
-              onClick={() => setMapStyle((prev) => (prev === 'dark' ? 'voyager' : 'dark'))}
+              onClick={() => {
+                const styles = ['dark', 'voyager', 'osm'];
+                const nextIdx = (styles.indexOf(mapStyle) + 1) % styles.length;
+                setMapStyle(styles[nextIdx]);
+              }}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-md border border-sky-500/40 bg-sky-950/60 text-sky-300 hover:bg-sky-900/60 transition shadow-md flex items-center gap-1.5"
-              title="Toggle Carto Basemap Theme"
+              title="Toggle Map Basemap Theme"
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>{mapStyle === 'dark' ? 'Dark Matter' : 'Voyager'}</span>
+              <span>{MAP_STYLES[mapStyle]?.name || 'Theme'}</span>
             </button>
           </div>
 
