@@ -3,15 +3,16 @@ import json
 import os
 import re
 import sys
-from dotenv import load_dotenv
+from pathlib import Path
+from dotenv import find_dotenv, load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(find_dotenv(usecwd=True))
+load_dotenv(Path(__file__).resolve().parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from strands import Agent
-from strands.models import AnthropicModel
-
-from config import ANTHROPIC_MODEL_ID
+from config import ANTHROPIC_MODEL_ID, GEMINI_MODEL_ID
 from tools import get_flood_risk, get_forecast, get_reports, get_terrain
 
 SYSTEM_PROMPT = """You are a flood and waterlogging risk advisor for ANY location in the world.
@@ -35,16 +36,28 @@ Respond with ONLY a JSON object, no markdown, in this exact shape:
 
 
 def build_agent() -> Agent:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "ANTHROPIC_API_KEY is not set. Please add it to your .env file."
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    if gemini_key:
+        from strands.models.gemini import GeminiModel
+        model = GeminiModel(
+            model_id=GEMINI_MODEL_ID,
+            client_args={"api_key": gemini_key},
         )
-    model = AnthropicModel(
-        model_id=ANTHROPIC_MODEL_ID,
-        max_tokens=2048,
-        client_args={"api_key": api_key},
-    )
+    elif anthropic_key:
+        from strands.models.anthropic import AnthropicModel
+        model = AnthropicModel(
+            model_id=ANTHROPIC_MODEL_ID,
+            max_tokens=2048,
+            client_args={"api_key": anthropic_key},
+        )
+    else:
+        raise RuntimeError(
+            "Neither GEMINI_API_KEY nor ANTHROPIC_API_KEY is set. "
+            "Please add GEMINI_API_KEY or ANTHROPIC_API_KEY to your .env file."
+        )
+
     return Agent(
         model=model,
         system_prompt=SYSTEM_PROMPT,

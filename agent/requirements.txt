@@ -3,3 +3,4 @@ boto3
 requests
 anthropic
 python-dotenv
+google-genai
