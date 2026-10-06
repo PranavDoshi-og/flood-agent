@@ -1,7 +1,7 @@
 """Data models for Flood Agent backend."""
 from datetime import datetime, timezone
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class AssessRequest(BaseModel):
@@ -15,6 +15,38 @@ class AssessResponse(BaseModel):
     summary: str = Field(..., description="Plain-language 2-sentence summary")
     reasons: list[str] = Field(default_factory=list, description="Evidence-based reasons")
     actions: list[str] = Field(default_factory=list, description="Recommended citizen actions")
+    telemetry: dict | None = Field(default=None, description="Detailed hydrological and geospatial telemetry")
+
+    @field_validator("risk_level", mode="before")
+    @classmethod
+    def clean_risk_level(cls, v):
+        if isinstance(v, str):
+            clean = v.strip().lower().replace('"', '').replace("'", "")
+            if "high" in clean:
+                return "high"
+            if "med" in clean or "mod" in clean:
+                return "medium"
+            if "low" in clean:
+                return "low"
+        return "low"
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def clean_confidence(cls, v):
+        if isinstance(v, str):
+            clean = v.strip().lower().replace('"', '').replace("'", "")
+            if "high" in clean:
+                return "high"
+            if "low" in clean:
+                return "low"
+            if "med" in clean or "mod" in clean:
+                return "medium"
+        return "medium"
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def clean_summary(cls, v):
+        return str(v).strip() if v is not None else ""
 
 
 class ReportCreate(BaseModel):

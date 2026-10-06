@@ -11,7 +11,7 @@ BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "")
 ANTHROPIC_MODEL_ID = os.environ.get("ANTHROPIC_MODEL_ID", "claude-3-5-haiku-20241022")
 
 # Gemini model configuration
-GEMINI_MODEL_ID = os.environ.get("GEMINI_MODEL_ID", "gemini-3.5-flash")
+GEMINI_MODEL_ID = os.environ.get("GEMINI_MODEL_ID", "gemini-2.5-flash")
 
 
 def require_model_id() -> str:
