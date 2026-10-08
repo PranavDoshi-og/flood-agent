@@ -21,7 +21,7 @@ When a user selects a location via map click, search, or device geolocation, the
 
 ---
 
-## 🛠️ The 4 Global Tools
+## 🛠️ The 6 Global Environmental & Infrastructure Tools
 
 All external data sources require zero proprietary data subscriptions, work globally, and require no API keys:
 
@@ -29,10 +29,18 @@ All external data sources require zero proprietary data subscriptions, work glob
    Queries Open-Meteo Global Weather API for 3-day daily precipitation totals (mm), maximum rainfall probabilities (%), and peak hourly rain intensity (mm/h).
 2. 🌊 **River Flood Risk (`get_flood_risk`)**:  
    Queries Open-Meteo Global Flood API for 7-day river discharge forecasts vs. historical normal baselines (identifying elevated surge ratios).
-3. 🏔️ **Terrain & Drainage Topography (`get_terrain`)**:  
-   Queries Open-Meteo Elevation API for 500m surrounding topographical elevation differentials (detecting whether a spot sits in a concave "bowl" that traps water) and queries OpenStreetMap Overpass API using spatial bounding-box indexing to count rivers, streams, canals, and drains within 1 km.
-4. 👥 **Citizen Ground-Truth Reports (`get_reports`)**:  
-   Queries crowd-sourced citizen reports filtered within a configurable radius using the Haversine distance formula. Under agent decision rules, **active citizen reports take precedence over forecast models for street-level conditions**.
+3. ☀️ **Heatwave & Thermal Stress (`get_heat_risk`)**:  
+   Queries Open-Meteo Global Forecast API for 3-day peak ambient air temperatures (°C), "feels-like" apparent temperature heat index (°C), peak UV radiation, and heat hazard categories.
+4. 🏜️ **Drought & Groundwater Deficit (`get_drought_and_groundwater`)**:  
+   Queries Open-Meteo Forecast API for topsoil moisture (0-1cm) and deep root-zone sub-surface moisture (27-81cm representing shallow groundwater buffer in m³/m³), paired with daily reference evapotranspiration (ET0) to detect acute drought stress.
+5. 🏔️ **Terrain & Drainage Topography (`get_terrain`)**:  
+   Queries Open-Meteo Elevation API for 500m surrounding topographical elevation differentials (detecting concave "bowl" depressions that trap runoff) and OpenStreetMap Overpass API for streams, canals, and drainage waterways within 1 km.
+6. 👥 **Citizen Ground-Truth & Infrastructure Telemetry (`get_reports`)**:  
+   Queries crowd-sourced citizen reports across 4 distinct hazard categories:
+   - 🌊 **Street Flooding & Waterlogging** (ankle, knee, waist, impassable depths)
+   - 🚰 **Municipal Pipeline Leaks** (minor seeps, active gushes, road-rupturing main bursts, contaminated water)
+   - 🚛 **Emergency Water Tankers** (tanker requested, dry taps 3+ days, arrival/refill status, queue congestion)
+   - ☀️ **Heatwave Emergencies** (cooling center demand, power/AC grid outages, heat exhaustion warnings)
 
 ---
 
@@ -40,7 +48,7 @@ All external data sources require zero proprietary data subscriptions, work glob
 
 ```mermaid
 graph TD
-    User([Citizen / User]) -->|Map Click / Report| UI[React + Leaflet Frontend]
+    User([Citizen / User]) -->|Map Click / Incident Report| UI[React + Leaflet Frontend]
     UI -->|REST API Calls| Backend[FastAPI Backend :8000]
     
     subgraph "Backend & Storage"
@@ -50,11 +58,13 @@ graph TD
         Store -.->|Prod / AWS| DynamoDB[(Amazon DynamoDB)]
     end
 
-    subgraph "Autonomous Tool Orchestration"
-        Agent --> Tool1[get_forecast: Open-Meteo]
-        Agent --> Tool2[get_flood_risk: Open-Meteo River API]
-        Agent --> Tool3[get_terrain: Elevation + Overpass OSM]
-        Agent --> Tool4[get_reports: Storage Interface]
+    subgraph "Autonomous Multi-Hazard Tool Orchestration"
+        Agent --> Tool1[get_forecast: Rainfall & Storms]
+        Agent --> Tool2[get_flood_risk: GloFAS River Surge]
+        Agent --> Tool3[get_heat_risk: Thermal & UV Stress]
+        Agent --> Tool4[get_drought_and_groundwater: Soil & Aquifer Buffer]
+        Agent --> Tool5[get_terrain: Elevation & OSM Waterways]
+        Agent --> Tool6[get_reports: Crowd-Sourced Leaks, Tankers, Floods, Heat]
     end
 
     subgraph "LLM Providers"

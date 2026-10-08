@@ -165,13 +165,119 @@ def get_terrain(lat: float, lon: float) -> dict:
 
 
 @tool
-def get_reports(lat: float, lon: float, radius_km: float = 2.0) -> dict:
-    """Get recent citizen waterlogging reports near a location.
+def get_heat_risk(lat: float, lon: float) -> dict:
+    """Get the 3-day temperature, heatwave severity, and heat index outlook for a location anywhere in the world.
+
+    Args:
+        lat: Latitude in decimal degrees.
+        lon: Longitude in decimal degrees.
+
+    Returns:
+        Max daily temperatures (°C), max feels-like apparent temperatures (°C),
+        peak UV index, and an assessment of extreme heatwave danger.
+    """
+    data = _get(
+        "https://api.open-meteo.com/v1/forecast",
+        {
+            "latitude": lat,
+            "longitude": lon,
+            "daily": "temperature_2m_max,apparent_temperature_max,uv_index_max",
+            "forecast_days": 3,
+            "timezone": "auto",
+        },
+    )
+    daily = data.get("daily", {})
+    t_max = [v for v in daily.get("temperature_2m_max", []) if v is not None]
+    app_max = [v for v in daily.get("apparent_temperature_max", []) if v is not None]
+    uv_max = [v for v in daily.get("uv_index_max", []) if v is not None]
+
+    peak_t = max(t_max) if t_max else 0.0
+    peak_app = max(app_max) if app_max else 0.0
+    peak_uv = max(uv_max) if uv_max else 0.0
+
+    if peak_app >= 42.0 or peak_t >= 40.0:
+        category = "extreme_heatwave"
+    elif peak_app >= 38.0 or peak_t >= 36.0:
+        category = "high_heat_warning"
+    elif peak_app >= 32.0 or peak_t >= 32.0:
+        category = "moderate_heat_caution"
+    else:
+        category = "low_normal"
+
+    return {
+        "dates": daily.get("time", []),
+        "max_temperature_c": t_max,
+        "max_apparent_temperature_c": app_max,
+        "peak_temperature_c": round(peak_t, 1),
+        "peak_apparent_temperature_c": round(peak_app, 1),
+        "peak_uv_index": round(peak_uv, 1),
+        "heat_category": category,
+    }
+
+
+@tool
+def get_drought_and_groundwater(lat: float, lon: float) -> dict:
+    """Assess drought indicators, soil moisture, and shallow groundwater conditions anywhere in the world.
+
+    Args:
+        lat: Latitude in decimal degrees.
+        lon: Longitude in decimal degrees.
+
+    Returns:
+        Topsoil moisture (0-1cm), deep root-zone moisture (27-81cm) representing groundwater buffer (m³/m³),
+        reference evapotranspiration (mm/day), and drought stress classification.
+    """
+    data = _get(
+        "https://api.open-meteo.com/v1/forecast",
+        {
+            "latitude": lat,
+            "longitude": lon,
+            "daily": "et0_fao_evapotranspiration",
+            "hourly": "soil_moisture_0_to_1cm,soil_moisture_27_to_81cm",
+            "forecast_days": 3,
+            "timezone": "auto",
+        },
+    )
+    daily = data.get("daily", {})
+    hourly = data.get("hourly", {})
+    et0 = [v for v in daily.get("et0_fao_evapotranspiration", []) if v is not None]
+    top_soil = [v for v in hourly.get("soil_moisture_0_to_1cm", []) if v is not None]
+    deep_soil = [v for v in hourly.get("soil_moisture_27_to_81cm", []) if v is not None]
+
+    avg_top = round(sum(top_soil) / len(top_soil), 3) if top_soil else 0.0
+    avg_deep = round(sum(deep_soil) / len(deep_soil), 3) if deep_soil else 0.0
+    max_et0 = round(max(et0), 2) if et0 else 0.0
+
+    if avg_deep < 0.15:
+        status = "severe_drought_and_groundwater_deficit"
+    elif avg_deep < 0.25:
+        status = "moderate_drought_stress"
+    elif avg_deep >= 0.38:
+        status = "saturated_high_water_table"
+    else:
+        status = "normal_hydration"
+
+    return {
+        "dates": daily.get("time", []),
+        "topsoil_moisture_m3m3": avg_top,
+        "deep_soil_groundwater_proxy_m3m3": avg_deep,
+        "daily_evapotranspiration_mm": et0,
+        "peak_evapotranspiration_mm": max_et0,
+        "drought_and_groundwater_status": status,
+    }
+
+
+@tool
+def get_reports(
+    lat: float, lon: float, radius_km: float = 2.0, category: str | None = None
+) -> dict:
+    """Get recent citizen reports (floods, pipe leaks, water tankers, heatwave hazards) near a location.
 
     Args:
         lat: Latitude in decimal degrees.
         lon: Longitude in decimal degrees.
         radius_km: Search radius in kilometres.
+        category: Optional category filter ('flood_waterlogging', 'pipe_leak', 'water_tanker', 'heatwave_alert').
 
     Returns:
         Number of recent reports and their details.
@@ -186,7 +292,7 @@ def get_reports(lat: float, lon: float, radius_km: float = 2.0) -> dict:
         from storage import get_storage
 
         store = get_storage()
-        items = store.get_reports(lat=lat, lon=lon, radius_km=radius_km)
+        items = store.get_reports(lat=lat, lon=lon, radius_km=radius_km, category=category)
         serialized = []
         for it in items:
             serialized.append(

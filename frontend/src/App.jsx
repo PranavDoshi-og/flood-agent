@@ -40,6 +40,11 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
+  Sun,
+  Flame,
+  Truck,
+  Wrench,
+  Thermometer,
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -64,12 +69,12 @@ const MAP_STYLES = {
 };
 
 const PRESET_CITIES = [
-  { name: 'Mumbai, IN', lat: 19.076, lon: 72.8777, desc: 'Monsoon coastal basin' },
-  { name: 'Jakarta, ID', lat: -6.2088, lon: 106.8456, desc: 'Rapidly sinking delta' },
-  { name: 'Houston, US', lat: 29.7604, lon: -95.3698, desc: 'Bayou flood network' },
-  { name: 'Venice, IT', lat: 45.4408, lon: 12.3155, desc: 'Acqua Alta lagoon surge' },
-  { name: 'London, UK', lat: 51.5074, lon: -0.1278, desc: 'Thames estuary basin' },
-  { name: 'Tokyo, JP', lat: 35.6762, lon: 139.6503, desc: 'Lowland storm surge zone' },
+  { name: 'Mumbai, IN', lat: 19.076, lon: 72.8777, desc: 'Monsoon coastal basin & waterlogging' },
+  { name: 'New Delhi, IN', lat: 28.6139, lon: 77.209, desc: 'Extreme heatwaves & water tanker supply' },
+  { name: 'Phoenix, US', lat: 33.4484, lon: -112.074, desc: 'Desert aridity & groundwater depletion' },
+  { name: 'Jakarta, ID', lat: -6.2088, lon: 106.8456, desc: 'Rapidly sinking delta & storm surge' },
+  { name: 'London, UK', lat: 51.5074, lon: -0.1278, desc: 'Thames estuary & aging municipal water mains' },
+  { name: 'Houston, US', lat: 29.7604, lon: -95.3698, desc: 'Bayou flood network & tropical storms' },
 ];
 
 // Custom pulsating SVG marker for selected assessment point
@@ -89,26 +94,52 @@ const createSelectedIcon = () =>
     popupAnchor: [0, -32],
   });
 
-// Marker for citizen reports
-const createReportIcon = (depth) => {
-  const isHigh = depth === 'waist' || depth === 'impassable';
-  const isKnee = depth === 'knee';
-  const color = isHigh
-    ? 'bg-rose-500 shadow-rose-500/50'
-    : isKnee
-    ? 'bg-amber-500 shadow-amber-500/50'
-    : 'bg-emerald-500 shadow-emerald-500/50';
+// Multi-hazard marker for citizen reports
+const createReportIcon = (rep) => {
+  const cat = rep?.category || 'flood_waterlogging';
+  const depth = (rep?.water_depth || rep?.severity || '').toLowerCase();
+  const sev = (rep?.severity || '').toLowerCase();
+
+  let emoji = '💧';
+  let color = 'bg-emerald-500 shadow-emerald-500/50';
+
+  if (cat === 'pipe_leak') {
+    emoji = '🚰';
+    color =
+      sev.includes('burst') || sev.includes('main') || sev.includes('major')
+        ? 'bg-purple-600 shadow-purple-600/50 ring-2 ring-purple-300'
+        : 'bg-cyan-500 shadow-cyan-500/50';
+  } else if (cat === 'water_tanker') {
+    emoji = '🚛';
+    color =
+      sev.includes('needed') || sev.includes('dry') || sev.includes('urgent')
+        ? 'bg-amber-500 shadow-amber-500/50 ring-2 ring-amber-300'
+        : 'bg-emerald-500 shadow-emerald-500/50';
+  } else if (cat === 'heatwave_alert') {
+    emoji = '☀️';
+    color = 'bg-rose-500 shadow-rose-500/50 ring-2 ring-orange-300';
+  } else {
+    // flood_waterlogging
+    const isHigh = depth === 'waist' || depth === 'impassable';
+    const isKnee = depth === 'knee';
+    color = isHigh
+      ? 'bg-rose-500 shadow-rose-500/50 ring-2 ring-rose-300'
+      : isKnee
+      ? 'bg-amber-500 shadow-amber-500/50'
+      : 'bg-emerald-500 shadow-emerald-500/50';
+    emoji = '💧';
+  }
 
   return L.divIcon({
     className: 'custom-report-marker',
     html: `
-      <div class="w-6 h-6 ${color} border-2 border-slate-950 rounded-full shadow-lg flex items-center justify-center text-white text-[10px] font-bold transition-transform hover:scale-125">
-        💧
+      <div class="w-7 h-7 ${color} border-2 border-slate-950 rounded-full shadow-lg flex items-center justify-center text-white text-[11px] font-bold transition-transform hover:scale-125 cursor-pointer">
+        ${emoji}
       </div>
     `,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    popupAnchor: [0, -12],
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -14],
   });
 };
 
@@ -147,6 +178,7 @@ export default function App() {
   const [showRadius, setShowRadius] = useState(true);
   const [showCitizenMarkers, setShowCitizenMarkers] = useState(true);
   const [depthFilter, setDepthFilter] = useState('all'); // 'all' | 'knee' | 'waist'
+  const [hazardCategoryFilter, setHazardCategoryFilter] = useState('all'); // 'all' | 'flood_waterlogging' | 'pipe_leak' | 'water_tanker' | 'heatwave_alert'
   const [copiedCoords, setCopiedCoords] = useState(false);
 
   // Search geocoding state
@@ -156,8 +188,10 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef(null);
 
-  // Report form state
+  // Report form state with multi-hazard support
   const [reportForm, setReportForm] = useState({
+    category: 'flood_waterlogging',
+    severity: 'ankle',
     water_depth: 'ankle',
     description: '',
     reporter_name: '',
@@ -300,7 +334,9 @@ export default function App() {
       const payload = {
         lat: selectedCoord.lat,
         lon: selectedCoord.lon,
-        water_depth: reportForm.water_depth,
+        category: reportForm.category,
+        severity: reportForm.severity,
+        water_depth: reportForm.water_depth || reportForm.severity,
         description: reportForm.description.trim() || 'No additional details',
         reporter_name: reportForm.reporter_name.trim() || 'Anonymous Citizen',
       };
@@ -310,7 +346,13 @@ export default function App() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error('Failed to submit report');
-      setReportForm({ water_depth: 'ankle', description: '', reporter_name: '' });
+      setReportForm({
+        category: 'flood_waterlogging',
+        severity: 'ankle',
+        water_depth: 'ankle',
+        description: '',
+        reporter_name: '',
+      });
       setReportModalOpen(false);
       await fetchReports();
       runAssessment(selectedCoord.lat, selectedCoord.lon);
@@ -355,11 +397,30 @@ export default function App() {
 
   const riskStyle = getRiskColor(assessment?.risk_level);
 
-  // Filter reports
+  // Multi-hazard filter reports
   const filteredReports = reports.filter((r) => {
-    if (depthFilter === 'waist') return r.water_depth === 'waist' || r.water_depth === 'impassable';
-    if (depthFilter === 'knee')
-      return r.water_depth === 'knee' || r.water_depth === 'waist' || r.water_depth === 'impassable';
+    const cat = r.category || 'flood_waterlogging';
+    if (hazardCategoryFilter !== 'all' && cat !== hazardCategoryFilter) {
+      return false;
+    }
+    if (depthFilter === 'waist') {
+      return (
+        r.water_depth === 'waist' ||
+        r.water_depth === 'impassable' ||
+        r.severity === 'waist' ||
+        r.severity === 'impassable' ||
+        r.severity === 'burst_pipe' ||
+        r.severity === 'critical'
+      );
+    }
+    if (depthFilter === 'knee') {
+      return (
+        r.water_depth === 'knee' ||
+        r.water_depth === 'waist' ||
+        r.water_depth === 'impassable' ||
+        r.severity === 'knee'
+      );
+    }
     return true;
   });
 
@@ -491,17 +552,28 @@ export default function App() {
                 <Marker
                   key={rep.id}
                   position={[rep.lat, rep.lon]}
-                  icon={createReportIcon(rep.water_depth)}
+                  icon={createReportIcon(rep)}
                 >
                   <Popup>
-                    <div className="p-1.5 text-slate-100 min-w-[180px]">
-                      <div className="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wider mb-1 text-amber-400">
-                        <Droplets className="w-3.5 h-3.5" /> {rep.water_depth} Water Depth
+                    <div className="p-1.5 text-slate-100 min-w-[200px]">
+                      <div className="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wider mb-1">
+                        {rep.category === 'pipe_leak' && (
+                          <span className="text-cyan-300 flex items-center gap-1">🚰 Pipeline Leak ({rep.severity})</span>
+                        )}
+                        {rep.category === 'water_tanker' && (
+                          <span className="text-amber-300 flex items-center gap-1">🚛 Tanker Alert ({rep.severity?.replace('_', ' ')})</span>
+                        )}
+                        {rep.category === 'heatwave_alert' && (
+                          <span className="text-rose-300 flex items-center gap-1">☀️ Heat Hazard ({rep.severity})</span>
+                        )}
+                        {(!rep.category || rep.category === 'flood_waterlogging') && (
+                          <span className="text-sky-300 flex items-center gap-1">💧 {rep.water_depth || rep.severity} Flood Depth</span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-300 mb-1 leading-snug">{rep.description}</p>
                       <div className="text-[10px] text-slate-400 flex items-center justify-between mt-2 pt-1 border-t border-slate-700/50">
                         <span>By: {rep.reporter_name || 'Anonymous'}</span>
-                        <span className="font-mono text-slate-500">Citizen Observation</span>
+                        <span className="font-mono text-slate-500">Ground Truth</span>
                       </div>
                     </div>
                   </Popup>
@@ -798,6 +870,97 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Multi-Hazard Risk Matrix */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-3 rounded-xl bg-[#111c38] border border-[#1e2e56] flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span className="flex items-center gap-1 font-semibold text-slate-200">
+                        🌊 Flood & Rain
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400">Runoff Ponding</span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                          assessment.hazards?.flood === 'high'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : assessment.hazards?.flood === 'medium'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        }`}
+                      >
+                        {assessment.hazards?.flood || 'LOW'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-[#111c38] border border-[#1e2e56] flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span className="flex items-center gap-1 font-semibold text-slate-200">
+                        ☀️ Heatwave Stress
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400">Feels-Like Index</span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                          assessment.hazards?.heatwave === 'high'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : assessment.hazards?.heatwave === 'medium'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        }`}
+                      >
+                        {assessment.hazards?.heatwave || 'LOW'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-[#111c38] border border-[#1e2e56] flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span className="flex items-center gap-1 font-semibold text-slate-200">
+                        🏜️ Drought & Aquifer
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400">Groundwater</span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                          assessment.hazards?.drought_groundwater === 'high'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : assessment.hazards?.drought_groundwater === 'medium'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        }`}
+                      >
+                        {assessment.hazards?.drought_groundwater || 'LOW'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-[#111c38] border border-[#1e2e56] flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span className="flex items-center gap-1 font-semibold text-slate-200">
+                        🚰 Leaks & Tankers
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400">Infrastructure</span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                          assessment.hazards?.infrastructure === 'high'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : assessment.hazards?.infrastructure === 'medium'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        }`}
+                      >
+                        {assessment.hazards?.infrastructure || 'LOW'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Plain-Language Citizen Summary */}
                 <div className="p-4 rounded-xl bg-[#111c38] border border-[#1e2e56]">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-2">
@@ -811,8 +974,8 @@ export default function App() {
                 {/* Evidence & Primary Drivers */}
                 <div className="p-4 rounded-xl bg-[#111c38] border border-[#1e2e56]">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-2.5">
-                    <Activity className="w-3.5 h-3.5 text-sky-400" /> Evidence & Environmental
-                    Drivers
+                    <Activity className="w-3.5 h-3.5 text-sky-400" /> Evidence & Multi-Hazard
+                    Signals
                   </h4>
                   <ul className="space-y-2">
                     {assessment.reasons?.map((reason, idx) => (
@@ -830,8 +993,8 @@ export default function App() {
                 {/* Citizen Recommended Actions */}
                 <div className="p-4 rounded-xl bg-[#111c38] border border-[#1e2e56]">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-2.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Recommended Citizen
-                    Safety Actions
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Recommended Citizen &
+                    Municipal Actions
                   </h4>
                   <ul className="space-y-2">
                     {assessment.actions?.map((act, idx) => (
@@ -855,9 +1018,9 @@ export default function App() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between text-xs text-slate-400">
                   <span className="font-semibold uppercase tracking-wider flex items-center gap-1.5">
-                    <Gauge className="w-3.5 h-3.5 text-sky-400" /> Multi-Sensor Sensor Telemetry
+                    <Gauge className="w-3.5 h-3.5 text-sky-400" /> Multi-Sensor Environmental Telemetry
                   </span>
-                  <span className="text-[11px] font-mono text-sky-400">4 Global Sensors Active</span>
+                  <span className="text-[11px] font-mono text-sky-400">6 Live Global Sensor Feeds</span>
                 </div>
 
                 {/* Telemetry Sensor Grid */}
@@ -884,22 +1047,10 @@ export default function App() {
                         </span>
                       </div>
                       <div>
-                        Max Probability:{' '}
+                        Rain Probability:{' '}
                         <span className="text-sky-400 font-mono font-semibold">
                           {telemetry?.rainfall?.max_probability_pct ?? 0}%
                         </span>
-                      </div>
-                      {/* Probability Progress Bar */}
-                      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-1">
-                        <div
-                          className="h-full bg-gradient-to-r from-sky-500 to-cyan-400 rounded-full"
-                          style={{
-                            width: `${Math.min(
-                              telemetry?.rainfall?.max_probability_pct ?? 0,
-                              100
-                            )}%`,
-                          }}
-                        />
                       </div>
                     </div>
                   </div>
@@ -934,15 +1085,99 @@ export default function App() {
                         </span>
                       </div>
                       <div>
-                        Sensor Model:{' '}
+                        River Discharge:{' '}
                         <span className="text-slate-200 font-mono">
-                          {telemetry?.hydrology?.available ? 'GloFAS River API' : 'Regional'}
+                          {telemetry?.hydrology?.available ? 'GloFAS River Model' : 'Regional'}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  {/* 3. Topography & Elevation */}
+                  {/* 3. Heatwave & Thermal Stress Sensor */}
+                  <div className="p-3.5 rounded-xl bg-[#111c38] border border-[#1e2e56] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                        ☀️ Heatwave
+                      </span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                          (telemetry?.heatwave?.peak_apparent_temperature_c ?? 0) >= 40
+                            ? 'bg-rose-500/20 text-rose-300'
+                            : (telemetry?.heatwave?.peak_apparent_temperature_c ?? 0) >= 35
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : 'bg-emerald-500/20 text-emerald-300'
+                        }`}
+                      >
+                        {(telemetry?.heatwave?.peak_apparent_temperature_c ?? 0) >= 40
+                          ? 'Extreme Heat'
+                          : (telemetry?.heatwave?.peak_apparent_temperature_c ?? 0) >= 35
+                          ? 'Caution'
+                          : 'Normal'}
+                      </span>
+                    </div>
+                    <div className="text-xl font-mono font-extrabold text-slate-100">
+                      {telemetry?.heatwave?.peak_apparent_temperature_c ?? '--'}°C
+                      <span className="text-xs font-normal text-slate-400 ml-1">feels like</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 space-y-1">
+                      <div>
+                        Ambient Air Temp:{' '}
+                        <span className="text-slate-200 font-mono font-semibold">
+                          {telemetry?.heatwave?.peak_temperature_c ?? '--'}°C
+                        </span>
+                      </div>
+                      <div>
+                        Peak UV Index:{' '}
+                        <span className="text-orange-400 font-mono font-semibold">
+                          {telemetry?.heatwave?.peak_uv_index ?? '--'} UV
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4. Drought & Subsurface Groundwater Sensor */}
+                  <div className="p-3.5 rounded-xl bg-[#111c38] border border-[#1e2e56] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                        🏜️ Groundwater
+                      </span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                          (telemetry?.drought_groundwater?.deep_soil_groundwater_proxy_m3m3 ?? 0.3) < 0.18
+                            ? 'bg-rose-500/20 text-rose-300'
+                            : (telemetry?.drought_groundwater?.deep_soil_groundwater_proxy_m3m3 ?? 0.3) < 0.25
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : 'bg-emerald-500/20 text-emerald-300'
+                        }`}
+                      >
+                        {(telemetry?.drought_groundwater?.deep_soil_groundwater_proxy_m3m3 ?? 0.3) < 0.18
+                          ? 'Deficit'
+                          : (telemetry?.drought_groundwater?.deep_soil_groundwater_proxy_m3m3 ?? 0.3) < 0.25
+                          ? 'Moderate'
+                          : 'Hydrated'}
+                      </span>
+                    </div>
+                    <div className="text-xl font-mono font-extrabold text-slate-100">
+                      {telemetry?.drought_groundwater?.deep_soil_groundwater_proxy_m3m3 ?? 0.0}
+                      <span className="text-xs font-normal text-slate-400 ml-1">m³/m³ deep</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 space-y-1">
+                      <div>
+                        Topsoil Moisture:{' '}
+                        <span className="text-slate-200 font-mono font-semibold">
+                          {telemetry?.drought_groundwater?.topsoil_moisture_m3m3 ?? 0.0} m³/m³
+                        </span>
+                      </div>
+                      <div>
+                        Evapotranspiration:{' '}
+                        <span className="text-sky-400 font-mono font-semibold">
+                          {telemetry?.drought_groundwater?.peak_evapotranspiration_mm ?? 0.0} mm/day
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 5. Topography & Elevation */}
                   <div className="p-3.5 rounded-xl bg-[#111c38] border border-[#1e2e56] space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
@@ -984,11 +1219,11 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* 4. Citizen Signals */}
+                  {/* 6. Citizen & Infrastructure Signals */}
                   <div className="p-3.5 rounded-xl bg-[#111c38] border border-[#1e2e56] space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                        👥 Ground Truth
+                        👥 Ground Signals
                       </span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
                         Crowd-Sourced
@@ -996,19 +1231,25 @@ export default function App() {
                     </div>
                     <div className="text-xl font-mono font-extrabold text-slate-100">
                       {telemetry?.citizen_signals?.total_reports ?? reports.length}
-                      <span className="text-xs font-normal text-slate-400 ml-1">reports</span>
+                      <span className="text-xs font-normal text-slate-400 ml-1">incidents</span>
                     </div>
                     <div className="text-[11px] text-slate-400 space-y-1">
-                      <div>
-                        High Severity (Waist+):{' '}
-                        <span className="text-rose-400 font-mono font-semibold">
-                          {telemetry?.citizen_signals?.high_severity_count ?? 0}
+                      <div className="flex items-center justify-between">
+                        <span>Floods / Ponding:</span>
+                        <span className="text-sky-300 font-mono font-semibold">
+                          {telemetry?.citizen_signals?.flood_count ?? 0}
                         </span>
                       </div>
-                      <div>
-                        Knee Depth:{' '}
-                        <span className="text-amber-400 font-mono font-semibold">
-                          {telemetry?.citizen_signals?.knee_depth_count ?? 0}
+                      <div className="flex items-center justify-between">
+                        <span>Pipe Leaks:</span>
+                        <span className="text-cyan-300 font-mono font-semibold">
+                          {telemetry?.citizen_signals?.leak_count ?? 0}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Tanker Demands:</span>
+                        <span className="text-amber-300 font-mono font-semibold">
+                          {telemetry?.citizen_signals?.tanker_count ?? 0}
                         </span>
                       </div>
                     </div>
@@ -1018,13 +1259,12 @@ export default function App() {
                 {/* Additional Technical Note */}
                 <div className="p-3.5 rounded-xl bg-[#0c1429] border border-[#1e2e56] text-xs text-slate-300">
                   <div className="font-bold text-sky-400 mb-1 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5" /> Sensor Harmonization Logic
+                    <Sparkles className="w-3.5 h-3.5" /> Environmental Multi-Hazard Correlation
                   </div>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Under Flood Agent decision logic, crowd-sourced ground-truth reports take strict
-                    priority over weather models for immediate street-level road passability. If
-                    sensors detect high rainfall but ground truth reports zero ponding, confidence
-                    is adjusted dynamically.
+                    Correlates Open-Meteo atmospheric forecasts, GloFAS river discharge, and OpenStreetMap
+                    drainage channels with real-time citizen observations. Ground truth from on-site
+                    reporters takes immediate precedence in localized underpass flooding and pipe bursts.
                   </p>
                 </div>
               </div>
@@ -1097,28 +1337,55 @@ export default function App() {
             {/* TAB 4: CITIZEN REPORTS LIST */}
             {activeTab === 'reports' && (
               <div className="space-y-3">
-                <div className="flex items-center justify-between pb-1">
-                  <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
-                    {filteredReports.length} Reports Found
+                <div className="flex flex-col gap-2 pb-1 border-b border-[#1e2e56]/50">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
+                      {filteredReports.length} Reports Found
+                    </div>
+
+                    {/* Depth Filter for floods */}
+                    {hazardCategoryFilter === 'flood_waterlogging' && (
+                      <div className="flex items-center gap-1">
+                        {[
+                          { id: 'all', label: 'All' },
+                          { id: 'knee', label: 'Knee+' },
+                          { id: 'waist', label: 'Waist+' },
+                        ].map((f) => (
+                          <button
+                            key={f.id}
+                            onClick={() => setDepthFilter(f.id)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition ${
+                              depthFilter === f.id
+                                ? 'bg-sky-500 text-slate-950 font-bold'
+                                : 'bg-[#111c38] text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Filter Pills */}
-                  <div className="flex items-center gap-1">
+                  {/* Hazard Category Filter Pills */}
+                  <div className="flex flex-wrap items-center gap-1">
                     {[
-                      { id: 'all', label: 'All' },
-                      { id: 'knee', label: 'Knee+' },
-                      { id: 'waist', label: 'Waist+' },
-                    ].map((f) => (
+                      { id: 'all', label: 'All Incidents' },
+                      { id: 'flood_waterlogging', label: '🌊 Floods' },
+                      { id: 'pipe_leak', label: '🚰 Leaks' },
+                      { id: 'water_tanker', label: '🚛 Tankers' },
+                      { id: 'heatwave_alert', label: '☀️ Heat' },
+                    ].map((cat) => (
                       <button
-                        key={f.id}
-                        onClick={() => setDepthFilter(f.id)}
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold transition ${
-                          depthFilter === f.id
-                            ? 'bg-sky-500 text-slate-950 font-bold'
-                            : 'bg-[#111c38] text-slate-400 hover:text-white'
+                        key={cat.id}
+                        onClick={() => setHazardCategoryFilter(cat.id)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 ${
+                          hazardCategoryFilter === cat.id
+                            ? 'bg-sky-500 text-slate-950 shadow-md'
+                            : 'bg-[#111c38] text-slate-300 hover:bg-[#1b2b54] hover:text-white border border-[#1e2e56]'
                         }`}
                       >
-                        {f.label}
+                        {cat.label}
                       </button>
                     ))}
                   </div>
@@ -1126,43 +1393,51 @@ export default function App() {
 
                 {filteredReports.length === 0 ? (
                   <div className="py-8 text-center text-xs text-slate-400">
-                    No citizen reports match this filter yet.
+                    No citizen reports match this category filter yet.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {filteredReports.map((rep) => (
-                      <div
-                        key={rep.id}
-                        className="p-3 rounded-xl bg-[#111c38] border border-[#1e2e56] hover:border-sky-500/50 transition space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                              rep.water_depth === 'waist' || rep.water_depth === 'impassable'
-                                ? 'bg-rose-500/20 text-rose-300'
-                                : rep.water_depth === 'knee'
-                                ? 'bg-amber-500/20 text-amber-300'
-                                : 'bg-emerald-500/20 text-emerald-300'
-                            }`}
-                          >
-                            {rep.water_depth} Water
-                          </span>
-                          <span className="text-[10px] font-mono text-slate-400">
-                            {rep.lat.toFixed(4)}, {rep.lon.toFixed(4)}
-                          </span>
+                    {filteredReports.map((rep) => {
+                      const cat = rep.category || 'flood_waterlogging';
+                      return (
+                        <div
+                          key={rep.id}
+                          className="p-3 rounded-xl bg-[#111c38] border border-[#1e2e56] hover:border-sky-500/50 transition space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                                cat === 'pipe_leak'
+                                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                                  : cat === 'water_tanker'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  : cat === 'heatwave_alert'
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                  : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                              }`}
+                            >
+                              {cat === 'pipe_leak' && `🚰 Leak: ${rep.severity}`}
+                              {cat === 'water_tanker' && `🚛 Tanker: ${rep.severity?.replace('_', ' ')}`}
+                              {cat === 'heatwave_alert' && `☀️ Heat: ${rep.severity?.replace('_', ' ')}`}
+                              {cat === 'flood_waterlogging' && `💧 Water: ${rep.water_depth || rep.severity}`}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {rep.lat.toFixed(4)}, {rep.lon.toFixed(4)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-200 leading-snug">{rep.description}</p>
+                          <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800">
+                            <span>Reported by {rep.reporter_name || 'Anonymous'}</span>
+                            <button
+                              onClick={() => handleSelectCoord(rep.lat, rep.lon)}
+                              className="text-sky-400 hover:text-sky-300 font-semibold flex items-center gap-0.5"
+                            >
+                              Fly Here &rarr;
+                            </button>
+                          </div>
                         </div>
-                        <p className="text-xs text-slate-200 leading-snug">{rep.description}</p>
-                        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800">
-                          <span>Reported by {rep.reporter_name || 'Anonymous'}</span>
-                          <button
-                            onClick={() => handleSelectCoord(rep.lat, rep.lon)}
-                            className="text-sky-400 hover:text-sky-300 font-semibold flex items-center gap-0.5"
-                          >
-                            Fly Here &rarr;
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1204,10 +1479,10 @@ export default function App() {
         </div>
       </div>
 
-      {/* Citizen Report Modal */}
+      {/* Citizen Multi-Hazard Report Modal */}
       {reportModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-[#0e172e] border border-[#1e2e56] rounded-2xl shadow-2xl p-6 relative">
+          <div className="w-full max-w-lg bg-[#0e172e] border border-[#1e2e56] rounded-2xl shadow-2xl p-6 relative">
             <button
               onClick={() => setReportModalOpen(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg"
@@ -1216,12 +1491,12 @@ export default function App() {
             </button>
 
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shadow-lg">
-                <Droplets className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-500/40 text-sky-400 flex items-center justify-center shadow-lg">
+                <Send className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="font-extrabold text-base text-slate-100">
-                  Submit Street Waterlogging Report
+                  Broadcast Ground-Truth Alert
                 </h3>
                 <p className="text-xs text-slate-400 font-mono">
                   Coordinates: {selectedCoord.lat.toFixed(4)}, {selectedCoord.lon.toFixed(4)}
@@ -1230,32 +1505,159 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSubmitReport} className="space-y-4">
+              {/* Category Picker */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Observed Water Depth
+                  Select Incident Category
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { id: 'ankle', label: 'Ankle', sub: '~10 cm' },
-                    { id: 'knee', label: 'Knee', sub: '~30 cm' },
-                    { id: 'waist', label: 'Waist', sub: '~60 cm' },
-                    { id: 'impassable', label: 'Deep', sub: '1 m+' },
-                  ].map((lvl) => (
+                    { id: 'flood_waterlogging', label: '🌊 Flood', desc: 'Waterlogging' },
+                    { id: 'pipe_leak', label: '🚰 Leak', desc: 'Pipe Burst' },
+                    { id: 'water_tanker', label: '🚛 Tanker', desc: 'Water Shortage' },
+                    { id: 'heatwave_alert', label: '☀️ Heat', desc: 'Emergency' },
+                  ].map((cat) => (
                     <button
                       type="button"
-                      key={lvl.id}
-                      onClick={() => setReportForm({ ...reportForm, water_depth: lvl.id })}
+                      key={cat.id}
+                      onClick={() => {
+                        let defSev = 'ankle';
+                        if (cat.id === 'pipe_leak') defSev = 'burst_pipe';
+                        if (cat.id === 'water_tanker') defSev = 'tanker_needed';
+                        if (cat.id === 'heatwave_alert') defSev = 'cooling_needed';
+                        setReportForm({
+                          ...reportForm,
+                          category: cat.id,
+                          severity: defSev,
+                          water_depth: defSev,
+                        });
+                      }}
                       className={`p-2.5 rounded-xl border text-center transition ${
-                        reportForm.water_depth === lvl.id
+                        reportForm.category === cat.id
                           ? 'bg-sky-500/20 border-sky-400 text-sky-200 font-bold shadow-md shadow-sky-500/10'
                           : 'bg-[#111c38] border-[#1e2e56] text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <div className="text-xs">{lvl.label}</div>
-                      <div className="text-[10px] text-slate-500">{lvl.sub}</div>
+                      <div className="text-xs">{cat.label}</div>
+                      <div className="text-[10px] text-slate-500">{cat.desc}</div>
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Dynamic Severity Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                  Severity / Observed Condition
+                </label>
+
+                {reportForm.category === 'flood_waterlogging' && (
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { id: 'ankle', label: 'Ankle', sub: '~10 cm' },
+                      { id: 'knee', label: 'Knee', sub: '~30 cm' },
+                      { id: 'waist', label: 'Waist', sub: '~60 cm' },
+                      { id: 'impassable', label: 'Deep', sub: '1 m+' },
+                    ].map((lvl) => (
+                      <button
+                        type="button"
+                        key={lvl.id}
+                        onClick={() =>
+                          setReportForm({ ...reportForm, severity: lvl.id, water_depth: lvl.id })
+                        }
+                        className={`p-2 rounded-xl border text-center transition ${
+                          reportForm.severity === lvl.id
+                            ? 'bg-sky-500/20 border-sky-400 text-sky-200 font-bold'
+                            : 'bg-[#111c38] border-[#1e2e56] text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-xs">{lvl.label}</div>
+                        <div className="text-[10px] text-slate-500">{lvl.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {reportForm.category === 'pipe_leak' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'minor_leak', label: 'Minor Seepage', sub: 'Slow trickle' },
+                      { id: 'moderate_gush', label: 'Active Gush', sub: 'Ponding street' },
+                      { id: 'burst_pipe', label: 'Main Line Burst', sub: 'Road rupture' },
+                      { id: 'contaminated', label: 'Contaminated', sub: 'Discolored / foul' },
+                    ].map((lvl) => (
+                      <button
+                        type="button"
+                        key={lvl.id}
+                        onClick={() =>
+                          setReportForm({ ...reportForm, severity: lvl.id, water_depth: lvl.id })
+                        }
+                        className={`p-2 rounded-xl border text-center transition ${
+                          reportForm.severity === lvl.id
+                            ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 font-bold'
+                            : 'bg-[#111c38] border-[#1e2e56] text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-xs">{lvl.label}</div>
+                        <div className="text-[10px] text-slate-500">{lvl.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {reportForm.category === 'water_tanker' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'tanker_needed', label: 'Tanker Needed', sub: 'Urgent demand' },
+                      { id: 'dry_taps', label: 'Dry Taps (3+ Days)', sub: 'Zero municipal flow' },
+                      { id: 'tanker_arrived', label: 'Tanker Arrived', sub: 'Refilling active' },
+                      { id: 'queue_overcrowded', label: 'Queue Conflict', sub: 'Overcrowded crowd' },
+                    ].map((lvl) => (
+                      <button
+                        type="button"
+                        key={lvl.id}
+                        onClick={() =>
+                          setReportForm({ ...reportForm, severity: lvl.id, water_depth: lvl.id })
+                        }
+                        className={`p-2 rounded-xl border text-center transition ${
+                          reportForm.severity === lvl.id
+                            ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
+                            : 'bg-[#111c38] border-[#1e2e56] text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-xs">{lvl.label}</div>
+                        <div className="text-[10px] text-slate-500">{lvl.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {reportForm.category === 'heatwave_alert' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'cooling_needed', label: 'Cooling Center Needed', sub: 'Shelter required' },
+                      { id: 'power_outage', label: 'Power / Fan Outage', sub: 'No AC / grid trip' },
+                      { id: 'heat_exhaustion', label: 'Heat Exhaustion', sub: 'Vulnerable citizens' },
+                      { id: 'critical_heat', label: 'Dangerous 42°C+ Exposure', sub: 'Emergency medical' },
+                    ].map((lvl) => (
+                      <button
+                        type="button"
+                        key={lvl.id}
+                        onClick={() =>
+                          setReportForm({ ...reportForm, severity: lvl.id, water_depth: lvl.id })
+                        }
+                        className={`p-2 rounded-xl border text-center transition ${
+                          reportForm.severity === lvl.id
+                            ? 'bg-rose-500/20 border-rose-400 text-rose-200 font-bold'
+                            : 'bg-[#111c38] border-[#1e2e56] text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-xs">{lvl.label}</div>
+                        <div className="text-[10px] text-slate-500">{lvl.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1267,7 +1669,7 @@ export default function App() {
                   rows={3}
                   value={reportForm.description}
                   onChange={(e) => setReportForm({ ...reportForm, description: e.target.value })}
-                  placeholder="e.g. Near metro entrance, storm drain overflowing, lane impassable for two-wheelers..."
+                  placeholder="e.g. Near ward office, main water pipe rupture under pavement, water overflowing onto traffic lane..."
                   className="w-full bg-[#111c38] border border-[#1e2e56] rounded-xl px-3.5 py-2.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-sky-500"
                 />
               </div>
@@ -1280,7 +1682,7 @@ export default function App() {
                   type="text"
                   value={reportForm.reporter_name}
                   onChange={(e) => setReportForm({ ...reportForm, reporter_name: e.target.value })}
-                  placeholder="e.g. Volunteer Citizen / Commuter"
+                  placeholder="e.g. Resident Volunteer / Ward Official"
                   className="w-full bg-[#111c38] border border-[#1e2e56] rounded-xl px-3.5 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-sky-500"
                 />
               </div>
@@ -1299,7 +1701,7 @@ export default function App() {
                   className="flex items-center gap-2 px-5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs shadow-lg shadow-sky-500/20 transition disabled:opacity-50"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{submittingReport ? 'Broadcasting...' : 'Broadcast Report'}</span>
+                  <span>{submittingReport ? 'Broadcasting...' : 'Broadcast Alert'}</span>
                 </button>
               </div>
             </form>

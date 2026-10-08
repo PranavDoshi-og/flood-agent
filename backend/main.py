@@ -113,11 +113,14 @@ def list_reports(
     lon: float | None = Query(None, description="Center longitude for distance filtering"),
     radius_km: float = Query(5.0, description="Search radius in kilometers", ge=0.1, le=50.0),
     limit: int = Query(50, description="Maximum number of reports to return", ge=1, le=200),
+    category: str | None = Query(None, description="Optional hazard category filter ('flood_waterlogging', 'pipe_leak', 'water_tanker', 'heatwave_alert')"),
     storage: BaseStorage = Depends(get_storage),
 ):
-    """Retrieve citizen waterlogging reports, optionally filtered by radius around (lat, lon)."""
+    """Retrieve citizen reports, optionally filtered by radius around (lat, lon) and category."""
     try:
-        reports = storage.get_reports(lat=lat, lon=lon, radius_km=radius_km, limit=limit)
+        reports = storage.get_reports(
+            lat=lat, lon=lon, radius_km=radius_km, limit=limit, category=category
+        )
         return ReportsResponse(count=len(reports), reports=reports)
     except Exception as exc:
         raise HTTPException(

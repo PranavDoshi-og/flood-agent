@@ -50,8 +50,9 @@ class BaseStorage(ABC):
         lon: float | None = None,
         radius_km: float = 5.0,
         limit: int = 50,
+        category: str | None = None,
     ) -> list[Report]:
-        """Retrieve reports, optionally filtered by distance radius around (lat, lon)."""
+        """Retrieve reports, optionally filtered by distance radius and hazard category."""
         pass
 
 
@@ -63,6 +64,8 @@ class SQLiteStorage(BaseStorage):
             default_dir = Path(__file__).resolve().parent / "data"
             default_dir.mkdir(parents=True, exist_ok=True)
             db_path = str(default_dir / "reports.db")
+        else:
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
         self._init_db()
 
@@ -79,6 +82,8 @@ class SQLiteStorage(BaseStorage):
                     id TEXT PRIMARY KEY,
                     lat REAL NOT NULL,
                     lon REAL NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'flood_waterlogging',
+                    severity TEXT NOT NULL DEFAULT 'moderate',
                     water_depth TEXT NOT NULL,
                     description TEXT NOT NULL,
                     reporter_name TEXT,
@@ -86,17 +91,34 @@ class SQLiteStorage(BaseStorage):
                 )
                 """
             )
+            # Automatic schema migration for existing sqlite db instances
+            try:
+                conn.execute("ALTER TABLE reports ADD COLUMN category TEXT DEFAULT 'flood_waterlogging'")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE reports ADD COLUMN severity TEXT DEFAULT 'moderate'")
+            except sqlite3.OperationalError:
+                pass
+
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports (created_at DESC)"
             )
             conn.commit()
 
     def save_report(self, report_in: ReportCreate) -> Report:
+        # Normalize category and severity
+        category = report_in.category or "flood_waterlogging"
+        severity = report_in.severity or report_in.water_depth or "moderate"
+        water_depth = report_in.water_depth or severity
+
         report = Report(
             id=str(uuid.uuid4()),
             lat=report_in.lat,
             lon=report_in.lon,
-            water_depth=report_in.water_depth,
+            category=category,
+            severity=severity,
+            water_depth=water_depth,
             description=report_in.description,
             reporter_name=report_in.reporter_name or "Anonymous Citizen",
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -104,13 +126,15 @@ class SQLiteStorage(BaseStorage):
         with self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO reports (id, lat, lon, water_depth, description, reporter_name, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO reports (id, lat, lon, category, severity, water_depth, description, reporter_name, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     report.id,
                     report.lat,
                     report.lon,
+                    report.category,
+                    report.severity,
                     report.water_depth,
                     report.description,
                     report.reporter_name,
@@ -126,19 +150,26 @@ class SQLiteStorage(BaseStorage):
         lon: float | None = None,
         radius_km: float = 5.0,
         limit: int = 50,
+        category: str | None = None,
     ) -> list[Report]:
         with self._get_connection() as conn:
-            rows = conn.execute(
-                "SELECT id, lat, lon, water_depth, description, reporter_name, created_at "
-                "FROM reports ORDER BY created_at DESC"
-            ).fetchall()
+            query = "SELECT * FROM reports"
+            params = []
+            if category:
+                query += " WHERE category = ?"
+                params.append(category)
+            query += " ORDER BY created_at DESC"
+            rows = conn.execute(query, params).fetchall()
 
         results: list[Report] = []
         for row in rows:
+            keys = row.keys()
             rep = Report(
                 id=row["id"],
                 lat=row["lat"],
                 lon=row["lon"],
+                category=row["category"] if "category" in keys else "flood_waterlogging",
+                severity=row["severity"] if "severity" in keys else row["water_depth"],
                 water_depth=row["water_depth"],
                 description=row["description"],
                 reporter_name=row["reporter_name"],
@@ -177,11 +208,17 @@ class DynamoDBStorage(BaseStorage):
         return self._table
 
     def save_report(self, report_in: ReportCreate) -> Report:
+        category = report_in.category or "flood_waterlogging"
+        severity = report_in.severity or report_in.water_depth or "moderate"
+        water_depth = report_in.water_depth or severity
+
         report = Report(
             id=str(uuid.uuid4()),
             lat=report_in.lat,
             lon=report_in.lon,
-            water_depth=report_in.water_depth,
+            category=category,
+            severity=severity,
+            water_depth=water_depth,
             description=report_in.description,
             reporter_name=report_in.reporter_name or "Anonymous Citizen",
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -196,14 +233,17 @@ class DynamoDBStorage(BaseStorage):
         lon: float | None = None,
         radius_km: float = 5.0,
         limit: int = 50,
+        category: str | None = None,
     ) -> list[Report]:
         table = self._get_table()
-        # Scan recent items and apply geospatial filter
+        # Scan recent items and apply geospatial and category filters
         response = table.scan(Limit=limit * 2)
         items = response.get("Items", [])
         results: list[Report] = []
         for item in items:
             rep = Report(**item)
+            if category and rep.category != category:
+                continue
             if lat is not None and lon is not None:
                 dist = haversine_km(lat, lon, rep.lat, rep.lon)
                 if dist <= radius_km:

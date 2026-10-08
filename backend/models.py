@@ -10,12 +10,13 @@ class AssessRequest(BaseModel):
 
 
 class AssessResponse(BaseModel):
-    risk_level: Literal["low", "medium", "high"] = Field(..., description="Assessed flood risk level")
+    risk_level: Literal["low", "medium", "high"] = Field(..., description="Assessed overall climate & water risk level")
     confidence: Literal["low", "medium", "high"] = Field(..., description="Confidence in assessment")
     summary: str = Field(..., description="Plain-language 2-sentence summary")
     reasons: list[str] = Field(default_factory=list, description="Evidence-based reasons")
     actions: list[str] = Field(default_factory=list, description="Recommended citizen actions")
-    telemetry: dict | None = Field(default=None, description="Detailed hydrological and geospatial telemetry")
+    hazards: dict | None = Field(default=None, description="Disaggregated risk ratings for each climate/water hazard")
+    telemetry: dict | None = Field(default=None, description="Detailed multi-sensor environmental and geospatial telemetry")
 
     @field_validator("risk_level", mode="before")
     @classmethod
@@ -52,9 +53,17 @@ class AssessResponse(BaseModel):
 class ReportCreate(BaseModel):
     lat: float = Field(..., description="Latitude in decimal degrees", ge=-90.0, le=90.0)
     lon: float = Field(..., description="Longitude in decimal degrees", ge=-180.0, le=180.0)
+    category: str = Field(
+        default="flood_waterlogging",
+        description="Hazard type: 'flood_waterlogging', 'pipe_leak', 'water_tanker', 'heatwave_alert'",
+    )
+    severity: str = Field(
+        default="moderate",
+        description="Severity level, e.g. 'ankle'/'knee'/'waist'/'impassable' (flood), 'minor_leak'/'burst_pipe' (leak), 'tanker_needed'/'tanker_arrived' (tanker), 'warning'/'critical' (heat)",
+    )
     water_depth: str = Field(
         default="ankle",
-        description="Observed water depth, e.g., 'ankle', 'knee', 'waist', 'impassable'",
+        description="Legacy observed water depth for backward compatibility",
     )
     description: str = Field(
         default="",
@@ -70,7 +79,9 @@ class Report(BaseModel):
     id: str
     lat: float
     lon: float
-    water_depth: str
+    category: str = "flood_waterlogging"
+    severity: str = "moderate"
+    water_depth: str = "ankle"
     description: str
     reporter_name: str | None = "Anonymous Citizen"
     created_at: str = Field(
@@ -81,3 +92,4 @@ class Report(BaseModel):
 class ReportsResponse(BaseModel):
     count: int
     reports: list[Report]
+
